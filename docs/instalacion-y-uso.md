@@ -15,7 +15,7 @@ Para la instalación del nodo, una vez instalados los [pre-requisitos](pre-requi
   Utilizando curl (ejecuta el primer `vagrant up`):
 
   ```
-  curl -sSLO https://raw.githubusercontent.com/MartinSIbarra/dfhwla/refs/heads/main/nodo/Vagrantfile && vagrant up
+  curl -sSLO https://raw.githubusercontent.com/MartinSIbarra/fhwla/refs/heads/main/nodo/Vagrantfile && vagrant up
   ```
 
 ###
@@ -90,7 +90,7 @@ Para instalar y configurar el entorno es necesario realizar los siguientes pasos
   Usando **_curl_** sería:
 
   ```
-  curl -sSLO https://raw.githubusercontent.com/MartinSIbarra/dfhwla/refs/heads/main/docker-compose.yml
+  curl -sSLO https://raw.githubusercontent.com/MartinSIbarra/fhwla/refs/heads/main/docker-compose.yml
   ```
 
 ###
@@ -104,7 +104,7 @@ Para instalar y configurar el entorno es necesario realizar los siguientes pasos
   El siguiente comando crea la carpeta `params` y descarga `params.json` dentro.
 
   ```
-  mkdir -p params && curl -sSLo ./params/params.json https://raw.githubusercontent.com/MartinSIbarra/dfhwla/refs/heads/main/examples/params.json
+  mkdir -p params && curl -sSLo ./params/params.json https://raw.githubusercontent.com/MartinSIbarra/fhwla/refs/heads/main/examples/params.json
   ```
 
   ###
