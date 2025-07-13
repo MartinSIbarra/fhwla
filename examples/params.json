@@ -1,0 +1,40 @@
+{
+    "ddns": {
+        "duckdns_update_time": 5, //Indica en segundos cada cuanto se refresca la ip en DuckDNS
+        "duckdns_domain": "mi-dominio-duckdns",
+        "duckdns_token": "mi-token-duckdns"
+    },
+    "vpn": {
+        "server_url": "mi-dominio-duckdns.duckdns.org",
+        "port": "51820",
+        "ipv4_net": "10.101.7.0",
+        "ipv6_net": "fd00:101:7::",
+        "peers_quantity": 20, // Indica la cantidad de peers que se conectaran a la vpn, se pueden generar de mas.
+        "ssh_passwd": "mi-contraseña-ssh"
+    },
+    "tunnel": {
+        "ngrok_auth_token": "mi-token-ngrok",
+        "ngrok_tunnel_url": "mi-dominio-ngrok.ngrok-free.app",
+        "ngrok_tunnel_port": 5000 // Puerto sobre el cual se realizará el tunnel, debe coincidir con el del proxy si se quiere utiliazar este ultimo.
+    },
+    "proxy": {
+        "auto_update_time": 5,
+        "listen_port": 5000, // Puerto en el cual escucha el proxy para rutear
+        "apps": [
+            {
+                "url_path": "prod",
+                "name": "prod-app", //Nombre de la aplicacion web de producción.
+                "port": 3000 // Puerto en el cual escucha la aplicacion web de producción.
+            },
+            {
+                "url_path": "uat",
+                "name": "uat-app", //Nombre de la aplicacion web de pruebas.
+                "port": 3000 // Puerto en el cual escucha la aplicacion web de pruebas.
+            }
+        ]
+    },
+    "log": {
+        "max_file_size": 10000,
+        "max_quantity_files": 6
+    }
+}

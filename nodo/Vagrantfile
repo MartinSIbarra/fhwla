@@ -1,0 +1,297 @@
+# Parámetros de configuración para alternar uso de la máquina virtual
+# Se pueden cambiar los siguientes parámetros:
+#   - El nombre del host puede ser cualquier nombre que no contenga espacios, se utilizará para el hostname y name de la VM
+#   - La contraseña de ssh se utilizará para el usuario vagrant, para que se pueda acceder por ssh con password desde máquinas conectadas a la VPN o red local.
+#   - La dirección IPv4 de la red local (LAN) se utilizará para asignar una IP estática a la VM en la red local.
+# Si no se especifican, se usarán los valores especificados en los comentarios:
+user_params = {
+    hostname: "", # Nombre del host, si no se completa toma por defecto "nodo"
+    ssh_pwd: "", # Contraseña de ssh, si no se completa toma por defecto "vagrant"
+    lan_ipv4_addr: "", # Dirección IPv4 de la red local, si no se completa toma por defecto "192.168.0.171"
+    ram_memory: "", # Memoria RAM asignada a la VM, si no se completa toma por defecto "2048"
+    cpus: "" # Cantidad de CPUs asignadas a la VM, por defecto 2
+}
+
+# Variable utilizada para indicar si es necesario reiniciar la máquina virtual tras instalar el plugin vagrant-vbguest
+restart_needed = false
+
+# Inicio del script para la configuracion de la maquina virtual
+Vagrant.configure("2") do |config|
+    config.vm.box = "ubuntu/jammy64"
+    config.vm.box_version = "20241002.0.0"
+
+    # Comandos que activan la configuración de la máquina virtual
+    commands = ["up", "reload"]
+    if ARGV.any? { |arg| commands.include?(arg) }
+        # Obtiene el sistema operativo del host
+        os = get_os()
+
+        # Verifica si el plugin vagrant-vbguest está instalado, si no lo instala
+        # vagrant-vbguest es necesario para que las VirtualBox Guest Additions se mantengan actualizadas
+        # y para evitar problemas de compatibilidad entre la versión de VirtualBox y las Guest Additions.
+        # Si no está instalado, lo instala con la versión 0.30.0, que es compatible con Vagrant 2.3.4.
+        # Si ya está instalado, verifica si hay un problema conocido con File.exists? y lo corrige.
+        # Este plugin es esencial para que la máquina virtual funcione correctamente con VirtualBox.
+        unless Vagrant.has_plugin?("vagrant-vbguest")
+            puts "⚠️  El plugin vagrant-vbguest no está instalado, se instalará."
+            system "vagrant plugin install vagrant-vbguest"
+            puts "✅  Plugin vagrant-vbguest instalado correctamente."
+            restart_needed = true
+        end 
+
+        # Aplica el parche 'File.exists?' → 'File.exist?'
+        patch_vbguest_virtualbox_rb(os)
+        
+        if restart_needed
+            puts "🔄 Vuelva a ejecutar 'vagrant up' para aplicar los cambios del plugin vagrant-vbguest."
+            exit(0)
+        end
+
+        # Inicialización de los parámetros de configuración si están vacíos
+        params = initialize_params_if_empty(user_params)
+
+        # Obtiene la interfaz de red con puerta de enlace
+        # Esta interfaz se utilizará para la configuración de red de la máquina virtual
+        # En Linux, se obtiene la interfaz con la ruta por defecto
+        # En macOS, se obtiene la interfaz con el comando route get default
+        # En Windows, se obtiene la interfaz con PowerShell
+        bridge_interface = get_bridge_interface(os)
+
+        config.vm.box = "ubuntu/jammy64"
+        config.vm.box_version = "20241002.0.0"
+        config.vm.hostname = params[:hostname]
+        # Configuración con public_network para acceso desde la red local
+        # La VM tendrá IP estática en la red local y será accesible desde otras máquinas
+        config.vm.network "public_network", ip: params[:lan_ipv4_addr], bridge: bridge_interface
+        
+        # Configuración alternativa: NAT + Host-only (comenta public_network si usas esto)
+        config.vm.network "forwarded_port", guest: 51820, host: 51820, protocol: "udp"
+        # config.vm.network "forwarded_port", guest: 22, host: 2222, protocol: "tcp"
+        # config.vm.network "private_network", ip: "192.168.56.10"
+
+        config.vbguest.auto_update = true       # Actualiza automáticamente las Guest Additions
+        config.vbguest.no_remote = false        # Permite descargar ISO si es necesario
+        config.vbguest.auto_reboot = true       # Reinicia la VM si es necesario tras instalar GA
+
+        config.vm.provider "virtualbox" do |vb|
+            vb.memory = params[:ram_memory]
+            vb.cpus = params[:cpus]
+            vb.name = params[:hostname]
+
+            # Configuraciones para mejorar el manejo de UDP en modo bridge (public_network)
+            # Estas configuraciones resuelven problemas comunes con UDP en VirtualBox
+            
+            # Habilitar modo promiscuo para permitir todo el tráfico UDP
+            vb.customize ["modifyvm", :id, "--nicpromisc1", "allow-all"]
+            
+            # Configurar el tipo de adaptador para mejor compatibilidad con UDP
+            vb.customize ["modifyvm", :id, "--nictype1", "82540EM"]
+            
+            # Habilitar I/O APIC para mejor manejo de interrupciones de red
+            vb.customize ["modifyvm", :id, "--ioapic", "on"]
+            
+            # Configurar cable conectado explícitamente
+            vb.customize ["modifyvm", :id, "--cableconnected1", "on"]
+            
+            # Configuraciones adicionales para mejorar el rendimiento de red
+            vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+            vb.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
+            
+            # Configuración opcional para debugging de red (descomenta si necesitas debug)
+            # vb.customize ["modifyvm", :id, "--nictrace1", "on"]
+            # vb.customize ["modifyvm", :id, "--nictracefile1", "./network-trace.log"]
+
+            # vb.customize ["modifyvm", :id, "--natpf1", "udp-fwd,udp,,51820,,51820"]
+
+        end
+
+        # Aprovisionamiento
+        config.vm.provision "init", type: "shell", inline: vm_setup(params[:ssh_pwd])
+
+    end
+end
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Métodos helpers para la configuración de la máquina virtual
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Obtiene el sistema operativo del host
+def get_os
+    os = ""
+    if RUBY_PLATFORM =~ /linux/
+        os = "linux"
+    elsif RUBY_PLATFORM =~ /darwin/
+        os = "macos"      
+    elsif RUBY_PLATFORM =~ /mingw|mswin|cygwin/
+        os = "windows"
+    else
+        raise "❌  Sistema operativo no soportado: #{RUBY_PLATFORM}"
+    end
+    puts "🔍 Sistema operativo detectado: #{RUBY_PLATFORM} / #{os}"
+    return os
+end
+
+# Aplica el parche 'File.exists?' → 'File.exist?' al plugin vagrant-vbguest si es necesario
+def patch_vbguest_virtualbox_rb(os)
+    require 'pathname'
+    require 'fileutils'
+    require 'rbconfig'
+
+    home = Dir.respond_to?(:home) ? Dir.home : ENV['HOME']
+    os = RbConfig::CONFIG['host_os']
+
+    gem_paths = []
+
+    # Ruta global (instalación embebida de Vagrant)
+    gem_paths << "#{Gem.dir}/gems/vagrant-vbguest-*/lib/vagrant-vbguest/hosts/virtualbox.rb"
+
+    # Ruta local por usuario (~/.vagrant.d)
+    gem_paths << "#{home}/.vagrant.d/gems/**/gems/vagrant-vbguest-*/lib/vagrant-vbguest/hosts/virtualbox.rb"
+
+    # Windows (backslashes, USERPROFILE)
+    if os == 'windows'
+        userprofile = ENV['USERPROFILE'].gsub('\\', '/')
+        gem_paths << "#{userprofile}/.vagrant.d/gems/**/gems/vagrant-vbguest-*/lib/vagrant-vbguest/hosts/virtualbox.rb"
+    end
+
+    # macOS (igual a Unix, pero a veces tiene instalaciones paralelas)
+    if os == 'macos'
+        gem_paths << "/opt/vagrant/embedded/gems/gems/vagrant-vbguest-*/lib/vagrant-vbguest/hosts/virtualbox.rb"
+    end
+
+    # Buscar el archivo
+    file = gem_paths.flat_map { |pattern| Dir.glob(pattern, File::FNM_CASEFOLD) }.find { |f| File.exist?(f) }
+
+    if file
+        content = File.read(file)
+        patched = content.gsub('File.exists?', 'File.exist?')
+
+        if content != patched
+            # Hacer backup antes de escribir
+            backup_file = "#{file}.bak"
+            FileUtils.cp(file, backup_file)
+            File.write(file, patched)
+            puts "🛠️  Patched 'File.exists?' → 'File.exist?' in: #{file}"
+            puts "📦  Backup saved at: #{backup_file}"
+            restart_needed = true
+        end
+    else
+        raise "⚠️  No se encontró virtualbox.rb para parchear en las rutas conocidas."
+    end
+end
+
+
+# Inicializa los parámetros de configuración si están vacíos
+def initialize_params_if_empty(params)
+    params[:hostname] = "nodo" if params[:hostname].empty?
+    params[:ssh_pwd] = "vagrant" if params[:ssh_pwd].empty?
+    params[:lan_ipv4_addr] = "192.168.0.171" if params[:lan_ipv4_addr].empty?
+    params[:ram_memory] = "2048" if params[:ram_memory].empty?
+    params[:cpus] = 2 if params[:cpus].nil? || params[:cpus].empty?
+    return params
+end
+
+# Obtiene la interfaz de red con puerta de enlace
+def get_bridge_interface(os)
+    bridge_interface = nil
+    if os == "linux"
+        output = `ip route`
+        line = output.lines.find { |l| l.include?('default') }
+        bridge_interface = line.split[4] if line  # En Linux, interfaz está en la 5ta palabra (índice 4)
+    elsif os == "macos"
+        output = `route get default`
+        line = output.lines.find { |l| l.include?('interface:') }
+        bridge_interface = line.split[1].strip if line  # Ejemplo: "interface: en0"
+    else # windows
+        output = `powershell -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null }).InterfaceDescription"`
+        bridge_interface = output.strip
+    end
+
+    if bridge_interface.nil? || bridge_interface.empty?
+        raise <<~ERROR
+        
+        "❌  No se pudo determinar la interfaz de red con puerta de enlace."
+        ERROR
+    end
+    puts "🔗 Usando interfaz bridge: #{bridge_interface}"
+    return bridge_interface
+end
+
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Scripts de provisionamiento de la maquina virtual
+#----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Instalación de paquetes esenciales y configuración de locales
+def vm_setup(ssh_pwd)
+    return <<-SHELL
+        echo "🔧 > Actualizando el Package Manager e instalando escenciales..." && {
+            sudo apt-get update
+            sudo apt-get upgrade -y
+            # build-essential: Herramientas básicas de compilación (gcc, g+++, make, etc.)
+            # dkms: Permite recompilar módulos del kernel automáticamente (útil para drivers como VirtualBox Guest Additions)
+            # linux-headers-amd64: Encabezados del kernel necesarios para compilar módulos para el kernel actual
+            # ca-certificates: Certificados de confianza para conexiones HTTPS
+            # curl: Herramienta para transferir datos desde o hacia un servidor
+            # wireguard: Protocolo de VPN moderno y eficiente
+            # tree: Herramienta para mostrar la estructura de directorios en forma de árbol
+            # bpytop: Monitor de recursos del sistema en tiempo real
+            sudo apt-get install -y build-essential dkms linux-headers-$(uname -r) ca-certificates curl wireguard tree bpytop
+        } && echo "✅ > Package Manager actualizado y esenciales instalados."
+
+        echo "🔧 > Configurando locales..." && {
+            # Descomentar es_AR.UTF-8 si está comentada en /etc/locale.gen
+            sudo sed -i '/es_AR.UTF-8/s/^# //' /etc/locale.gen
+            sudo sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen
+            sudo locale-gen
+            # Establecer los locales predeterminados del sistema
+            sudo update-locale \
+                LANG=en_US.UTF-8 \
+                LANGUAGE=en_US.UTF-8 \
+                LC_MESSAGES=en_US.UTF-8 \
+                LC_NUMERIC=es_AR.UTF-8 \
+                LC_TIME=es_AR.UTF-8 \
+                LC_MONETARY=es_AR.UTF-8 \
+                LC_PAPER=es_AR.UTF-8 \
+                LC_NAME=es_AR.UTF-8 \
+                LC_ADDRESS=es_AR.UTF-8 \
+                LC_TELEPHONE=es_AR.UTF-8 \
+                LC_MEASUREMENT=es_AR.UTF-8 \
+                LC_IDENTIFICATION=es_AR.UTF-8
+        } && echo "✅ > Locales configurados."
+
+        echo "🔧 > Instalando Docker..." && {
+            # Borrando instalaciones de docker no oficiales
+            for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do sudo apt-get remove $pkg; done
+            # Agregando GPG key oficial de Docker
+            sudo install -m 0755 -d /etc/apt/keyrings
+            sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            sudo chmod a+r /etc/apt/keyrings/docker.asc
+            # Agregando el repositorio a las fuentes de APT
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+            $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            sudo apt-get update
+            # Instalando Docker y agregando el usuario vagrant al grupo docker
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            sudo usermod -aG docker vagrant
+        } && echo "✅ > Docker instalado."
+
+        echo "🔧 > Configurando ssh para acceso con password desde la VPN..." && {
+            # Agregado de configuración para permitir autenticación por contraseña solo desde la VPN y la red local
+            echo "# Solo permitir autenticación por contraseña desde la VPN" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "Match Address 10.101.7.0/24,192.168.0.0/24" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "    PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "# En todos los demás casos, desactivar" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "Match all" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "    PasswordAuthentication no" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "# Asegurarse de que PubkeyAuthentication esté activo para no romper vagrant ssh" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            echo "PubkeyAuthentication yes" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+            # Generación de password para el usuario vagrant para poder acceder por ssh con password
+            echo "vagrant:#{ssh_pwd}" | sudo chpasswd
+        } && echo "✅ > Configuración de ssh completada."
+
+        echo "🔧 > Agregando aliases..." && {
+            echo "alias a='ls -la --color --group-directories-first'" | tee -a /home/vagrant/.bashrc >/dev/null
+            echo "alias l='ls -l --color --group-directories-first'" | tee -a /home/vagrant/.bashrc >/dev/null
+        } && echo "✅ > Aliases agregados."
+    SHELL
+end

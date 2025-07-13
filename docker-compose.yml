@@ -1,0 +1,79 @@
+services:
+
+  ddns:
+    image: bishopplusplus/ddns-updater:alpine
+    container_name: ddns-updater
+    hostname: ddns-updater
+    volumes:
+      - ./params:/root/params
+      - ./logs:/root/logs
+    restart: unless-stopped
+
+  vpn-server:
+    image: bishopplusplus/vpn-server:alpine
+    container_name: vpn-server
+    hostname: vpn-server
+    volumes:
+      - ./config:/root/config
+      - ./params:/root/params
+      - ./logs:/root/logs
+      - ./vscode-server-data:/root/.vscode-server
+    ports:
+      - "51820:51820/udp"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    restart: unless-stopped
+
+  tunnel:
+    image: bishopplusplus/tunnel-server:alpine
+    container_name: tunnel-server
+    hostname: tunnel-server
+    volumes:
+      - ./params:/root/params
+      - ./logs:/root/logs
+    networks:
+      - proxy-net
+    restart: unless-stopped
+
+  proxy:
+    image: bishopplusplus/proxy-server:alpine
+    container_name: proxy-server
+    hostname: proxy-server
+    volumes:
+      - ./params:/root/params
+      - ./logs:/root/logs
+      - ./config:/root/config
+    networks:
+      - proxy-net
+      - prod-net
+      - uat-net
+    restart: unless-stopped
+
+  prod-app:
+    image: bishopplusplus/fake-app:alpine
+    container_name: prod-app
+    hostname: prod-app
+    networks:
+      - prod-net
+    restart: unless-stopped
+
+  uat-app:
+    image: bishopplusplus/fake-app:alpine
+    container_name: uat-app
+    hostname: uat-app
+    networks:
+      - uat-net
+    restart: unless-stopped
+
+networks:
+  proxy-net:
+    name: proxy-net
+    driver: bridge
+  prod-net:
+    name: prod-net  
+    driver: bridge
+  uat-net:
+    name: uat-net
+    driver: bridge
