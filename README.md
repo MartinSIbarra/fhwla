@@ -25,7 +25,7 @@ El proyecto tiene como objetivo facilitar el despliegue de un entorno para hosti
 
 - **DDNS Updater** (_[DuckDNS](https://www.duckdns.org/)_)
 
-  Tiene como objetivo otorgar un dominio "estático" al servidor host de la arquitectura para que pueda ser accedido sin importar si su IP es estática o dinámica. Principalmente utilizado para handshake entre los peers y el **_"VPN Server"_**. Utiliza
+  Tiene como objetivo otorgar un dominio "estático" al servidor host de la arquitectura para que pueda ser accedido sin importar si su IP es estática o dinámica. Principalmente utilizado para handshake entre los peers y el **_"VPN Server"_**.
 
 ######
 
