@@ -22,7 +22,7 @@ log "ngrok_auth_token: $ngrok_auth_token"
 log "ngrok_tunnel_url: $ngrok_tunnel_url"
 log "ngrok_tunnel_port: $ngrok_tunnel_port"
 log "ngrok_log_file: $log_file"
-[ "$ENVIRONMENT" == "container" ] \
+[ "$RUNNING_AS" == "container" ] \
     && rm -f "$log_file" \
     && ngrok http proxy-server:$ngrok_tunnel_port --url=$ngrok_tunnel_url --authtoken=$ngrok_auth_token --log=$log_file
 log "Ngrok tunnel started."

@@ -11,7 +11,7 @@ vpn_interface="$vpn_config_path/server.conf"
 mkdir -p "$vpn_config_path"
 chown "1000:1000" "$vpn_config_path"
 
-[[ "$ENVIRONMENT" == "container" ]] && wg-quick down "$vpn_interface" > /dev/null 2>&1 || true
+[[ "$RUNNING_AS" == "container" ]] && wg-quick down "$vpn_interface" > /dev/null 2>&1 || true
 
 # Se obtienen los parametros del archivo de configuracion
 log "Loading parameters from $PARAMS_FILE..."
@@ -133,6 +133,6 @@ for key in "${keys[@]}"; do
     ((i++))
 done
 
-[[ "$ENVIRONMENT" == "container" ]] && wg-quick up "$vpn_interface"
+[[ "$RUNNING_AS" == "container" ]] && wg-quick up "$vpn_interface"
 
 log "WireGuard VPN server started successfully."

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setea las variables de entorno para el entornos de produccion
-export ENVIRONMENT="container"
+export RUNNING_AS="container"
 export ROOT_PATH="$HOME"
 export COMMONS_BIN_PATH="$BIN_PATH"
 export CONFIG_PATH="$ROOT_PATH/config"
